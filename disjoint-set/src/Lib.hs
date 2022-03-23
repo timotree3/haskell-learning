@@ -1,36 +1,74 @@
+{-# LANGUAGE NamedFieldPuns #-}
+
 module Lib
   ( add,
     empty,
     union,
-    find,
+    toLists,
     DisjointSet,
   )
 where
 
+import Control.Monad (filterM)
+import Control.Monad.ST
 import Data.Foldable (asum)
-import Data.Maybe (fromMaybe)
+import Data.Map (Map)
+import qualified Data.Map as Map
+import Data.Maybe (fromMaybe, isNothing)
+import Data.STRef
 
-newtype DisjointSet a = DisjointSet {unDisjointSet :: [[a]]} deriving (Show)
+type NodeRef s a = STRef s (Node s a)
 
-empty :: DisjointSet a
-empty = DisjointSet []
+newtype DisjointSet s a = DisjointSet {unDisjointSet :: STRef s (Map a (NodeRef s a))}
 
-add :: Eq a => a -> DisjointSet a -> DisjointSet a
-add x d = case find x d of
-  Just _ -> d
-  Nothing -> DisjointSet ([x] : unDisjointSet d)
+data Node s a = Node {value :: a, parent :: Maybe (NodeRef s a), rank :: Int}
 
-union :: Eq a => a -> a -> DisjointSet a -> DisjointSet a
-union x y d =
-  let (sx, d') = remove x d
-   in let (sy, d'') = remove y d'
-       in DisjointSet ((sx ++ sy) : unDisjointSet d'')
+empty :: ST s (DisjointSet s a)
+empty = DisjointSet <$> newSTRef Map.empty
 
-remove :: Eq a => a -> DisjointSet a -> ([a], DisjointSet a)
-remove x (DisjointSet ss) = (fromMaybe [x] (findMap (predToMaybe (elem x)) ss), DisjointSet $ filter (notElem x) ss)
+add :: Ord a => a -> DisjointSet s a -> ST s ()
+add x (DisjointSet rm) = do
+  m <- readSTRef rm
+  case Map.lookup x m of
+    Just _ -> pure ()
+    Nothing -> do
+      n <- newSTRef Node {value = x, parent = Nothing, rank = 0}
+      writeSTRef rm (Map.insert x n m)
 
-find :: Eq a => a -> DisjointSet a -> Maybe a
-find x (DisjointSet ss) = findMap (representativeElementIfMember x) ss
+union :: Ord a => a -> a -> DisjointSet s a -> ST s ()
+union = undefined
+
+find :: Ord a => a -> DisjointSet s a -> ST s (Maybe (Node s a))
+find x (DisjointSet rm) = do
+  m <- readSTRef rm
+  case Map.lookup x m of
+    Just node -> Just <$> (grandestParent =<< readSTRef node)
+    Nothing -> pure Nothing
+
+toLists :: Ord a => DisjointSet s a -> ST s [[a]]
+toLists (DisjointSet rm) = do
+  m <- readSTRef rm
+  nodes <- traverse readSTRef (snd <$> Map.toList m)
+  let leafs = value <$> filter isLeaf nodes
+  descendantsPerLeaf <- traverse (`allDescendants` nodes) leafs
+  pure $ fmap value <$> descendantsPerLeaf
+
+-- NB: isDescendant x Node { value = x } == True
+isDescendant :: Ord a => a -> Node s a -> ST s Bool
+isDescendant leaf n = do
+  gp <- grandestParent n
+  return $ leaf == value gp
+
+allDescendants :: Ord a => a -> [Node s a] -> ST s [Node s a]
+allDescendants = filterM . isDescendant
+
+isLeaf :: Node s a -> Bool
+isLeaf Node {parent} = isNothing parent
+
+grandestParent :: Node s a -> ST s (Node s a)
+grandestParent node = case parent node of
+  Just parent -> readSTRef parent >>= grandestParent
+  Nothing -> pure node
 
 representativeElementIfMember :: Eq a => a -> [a] -> Maybe a
 representativeElementIfMember x s =
