@@ -40,7 +40,12 @@ find x (DisjointSet m) = do
   n <- HashTable.lookup m x
   case n of
     Just (Rep _) -> pure $ Just x
-    Just (Child p) -> find p (DisjointSet m)
+    Just (Child p) -> do
+      mR <- find p (DisjointSet m)
+      case mR of
+        Just r -> setParent x r (DisjointSet m)
+        Nothing -> pure ()
+      pure mR
     Nothing -> pure Nothing
 
 showSt :: (Show a) => DisjointSet s a -> ST s String
