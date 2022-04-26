@@ -7,24 +7,21 @@ import Lib
 
 main :: IO ()
 main = do
-  --   print $ union 2 3 empty
-  --   print $ union 2 3 (add 2 (add 1 empty))
-  print (runST $ empty >>= immut :: IDisjointSet Int)
-  print $
+  putStrLn $
     runST $
       do
         d <- empty
-        add 1 d
+        add (1 :: Int) d
         add 2 d
-        immut d
-  print $
+        showSt d
+  putStrLn $
     runST $
       do
         d <- empty
-        add 1 d
+        add (1 :: Int) d
         add 2 d
         add 3 d
         union 1 2 d
         add 4 d
         union 2 4 d
-        immut d
+        showSt d
